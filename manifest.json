@@ -1,0 +1,10 @@
+{
+  "name": "个人工作管理平台",
+  "short_name": "工作管理",
+  "description": "待办、模块、提醒、总结一体化管理",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#e8f3fb",
+  "theme_color": "#4a90d9",
+  "orientation": "portrait-primary"
+}
