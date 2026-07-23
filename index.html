@@ -254,17 +254,41 @@
 
     <!-- ====== Data backup ====== -->
     <div class="crd">
-      <h2><span class="ic">💾</span> 数据备份与同步</h2>
+      <h2><span class="ic">💾</span> 数据备份</h2>
       <div class="rw" style="align-items:flex-end;">
         <div class="fl" style="flex:1;">
-          <label class="lb">将当前设备数据导出为文件</label>
+          <label class="lb">导出为文件（手动备份）</label>
           <button class="btn btn-g btn-sm" id="btnExport" style="margin-top:6px;">⬇ 导出数据</button>
         </div>
         <div class="fl" style="flex:1;">
-          <label class="lb">从文件恢复数据（会覆盖当前全部数据）</label>
+          <label class="lb">从文件恢复</label>
           <input type="file" id="inImport" accept=".json" style="display:none;" />
           <button class="btn btn-sm btn-d" id="btnImport" style="margin-top:6px;">📥 导入数据</button>
         </div>
+      </div>
+    </div>
+
+    <!-- ====== GitHub auto-sync ====== -->
+    <div class="crd" id="syncCard">
+      <h2><span class="ic">☁️</span> GitHub 自动同步</h2>
+      <div class="rw">
+        <div class="fl" style="flex:3;">
+          <label class="lb">GitHub Token（需 repo 权限）</label>
+          <input id="inGt" type="password" placeholder="ghp_xxxxxxxxxxxx" />
+        </div>
+        <div class="fl" style="flex:1;">
+          <label class="lb">用户名</label>
+          <input id="inGu" value="394954147-oss" />
+        </div>
+        <div class="fl" style="flex:1;">
+          <label class="lb">仓库名</label>
+          <input id="inGr" value="work-platform" />
+        </div>
+      </div>
+      <div class="rw" style="align-items:center;margin-top:8px;">
+        <button class="btn btn-g btn-sm" id="btnSyncSave">💾 保存设置</button>
+        <button class="btn btn-g btn-sm" id="btnSyncNow">🔄 立即同步</button>
+        <span class="ht" id="syncStatus" style="margin-top:0;flex:1;text-align:right;"></span>
       </div>
     </div>
   </section>
@@ -505,7 +529,7 @@ function addTodo(){
     id:uid(),title:t,mId:$i('inM').value,detail:$i('inD').value.trim(),
     remind:$i('inR').value||null,done:false,createdAt:Date.now(),notified:false
   });
-  save();clrCache();
+  save();ghPush();clrCache();
   $i('inT').value='';$i('inD').value='';$i('inR').value='';
   renderAll();toast('已添加 ✅');
 }
@@ -513,12 +537,12 @@ function addTodo(){
 function togDone(id){
   const t=S.todos.find(x=>x.id===id);if(!t)return;
   t.done=!t.done;if(t.done)t.doneAt=Date.now();
-  save();clrCache();renderAll();
+  save();ghPush();clrCache();renderAll();
 }
 
 function delTodo(id){
   if(!confirm('确定删除这条待办？'))return;
-  S.todos=S.todos.filter(x=>x.id!==id);save();clrCache();renderAll();toast('已删除');
+  S.todos=S.todos.filter(x=>x.id!==id);save();ghPush();clrCache();renderAll();toast('已删除');
 }
 
 function openDet(id){
@@ -536,7 +560,7 @@ function saveDetail(){
   t.mId=$i('dtM').value;t.done=$i('dtDone').checked;
   if(t.done&&!t.doneAt)t.doneAt=Date.now();if(!t.done)t.doneAt=null;
   if(t.remind)t.notified=false;
-  save();clrCache();cModal('ovD');renderAll();toast('已保存 ✅');
+  save();ghPush();clrCache();cModal('ovD');renderAll();toast('已保存 ✅');
 }
 
 function delFromDetail(){
@@ -563,13 +587,13 @@ function renderModList(){
 }
 function addMod(){
   const n=$i('inNm').value.trim();if(!n){toast('请输入模块名称');return;}
-  S.mods.push({id:uid(),name:n});save();
+  S.mods.push({id:uid(),name:n});save();ghPush();
   $i('inNm').value='';clrCache();
   fillModSelect($i('inM'));renderModList();renderAll();toast('模块已新增');
 }
 function renMod(id){
   const m=S.mods.find(x=>x.id===id);if(!m)return;
-  const n=prompt('修改模块名称：',m.name);if(n&&n.trim()){m.name=n.trim();save();clrCache();renderModList();renderAll();}
+  const n=prompt('修改模块名称：',m.name);if(n&&n.trim()){m.name=n.trim();save();ghPush();clrCache();renderModList();renderAll();}
 }
 function delMod(id){
   if(S.mods.length<=1){toast('至少保留一个模块');return;}
@@ -583,7 +607,7 @@ function delMod(id){
   }
   S.mods=S.mods.filter(x=>x.id!==id);
   if(filt===id){filt='all';_statusF='all';}
-  save();clrCache();fillModSelect($i('inM'));renderModList();renderAll();toast('模块已删除');
+  save();ghPush();clrCache();fillModSelect($i('inM'));renderModList();renderAll();toast('模块已删除');
 }
 
 /* ======================== SUMMARY ======================== */
@@ -684,6 +708,100 @@ function toast(msg){
   clearTimeout(_tt);_tt=setTimeout(()=>t.classList.remove('sh'),2200);
 }
 
+/* ======================== GITHUB SYNC ======================== */
+const SYNC_KEY='wpm_sync';
+let syncCfg={token:'',owner:'394954147-oss',repo:'work-platform',enabled:false,lastSync:''};
+function loadSync(){
+  try{
+    const r=localStorage.getItem(SYNC_KEY);
+    if(r){const d=JSON.parse(r);Object.assign(syncCfg,d);}
+  }catch(e){}
+}
+function saveSync(){
+  syncCfg.enabled=!!syncCfg.token;
+  localStorage.setItem(SYNC_KEY,JSON.stringify(syncCfg));
+}
+function setSyncStatus(msg,ok){
+  const el=$i('syncStatus');
+  if(el) el.innerHTML=msg;
+}
+function ghHeaders(){return {'Authorization':'Bearer '+syncCfg.token,'Accept':'application/vnd.github.v3+json'};}
+function ghUrl(path){return 'https://api.github.com/repos/'+syncCfg.owner+'/'+syncCfg.repo+path;}
+
+function ghPull(){
+  if(!syncCfg.enabled||!syncCfg.token)return Promise.resolve();
+  setSyncStatus('⏳ 正在同步…');
+  return fetch(ghUrl('/contents/data.json'),{headers:ghHeaders()})
+    .then(r=>{
+      if(!r.ok){if(r.status===404){setSyncStatus('☁️ 首次使用，等待上传');return null;}throw new Error('HTTP '+r.status);}
+      return r.json();
+    })
+    .then(d=>{
+      if(!d)return;
+      const raw=atob(d.content);
+      const remote=JSON.parse(raw);
+      if(!remote.mods||!remote.todos){setSyncStatus('⚠️ 云端数据格式异常');return;}
+      // compare: if local is empty or remote is newer, adopt remote
+      if(S.todos.length===0||(remote._ts||0)>(S._ts||0)){
+        S.mods=remote.mods;S.todos=remote.todos;S._ts=remote._ts||0;
+        save();clrCache();renderAll();
+        setSyncStatus('✅ 已同步（远端数据）');
+      }else{
+        setSyncStatus('☁️ 已是最新（本地优先）');
+      }
+    })
+    .catch(e=>{setSyncStatus('⚠️ 拉取失败：'+e.message);});
+}
+
+function ghPush(){
+  if(!syncCfg.enabled||!syncCfg.token)return;
+  S._ts=Date.now();
+  const body=JSON.stringify({mods:S.mods,todos:S.todos,_ts:S._ts});
+  const b64=btoa(unescape(encodeURIComponent(body)));
+  // get current sha (if exists)
+  fetch(ghUrl('/contents/data.json'),{headers:ghHeaders()})
+    .then(r=>r.ok?r.json():{sha:null})
+    .then(cur=>{
+      const data={message:'auto-sync '+new Date().toISOString().slice(0,19),content:b64};
+      if(cur.sha) data.sha=cur.sha;
+      return fetch(ghUrl('/contents/data.json'),{
+        method:'PUT',headers:ghHeaders(),
+        body:JSON.stringify(data)
+      });
+    })
+    .then(r=>{if(r.ok){syncCfg.lastSync=new Date().toISOString();saveSync();setSyncStatus('☁️ '+syncCfg.lastSync.slice(0,16));}else{throw new Error('HTTP '+r.status);}})
+    .catch(e=>{setSyncStatus('⚠️ 上传失败');console.warn('ghPush',e);});
+}
+
+function initSync(){
+  loadSync();
+  // fill UI
+  $i('inGt').value=syncCfg.token||'';
+  $i('inGu').value=syncCfg.owner;
+  $i('inGr').value=syncCfg.repo;
+  if(syncCfg.enabled) setSyncStatus('☁️ '+(syncCfg.lastSync?syncCfg.lastSync.slice(0,16):'就绪'));
+  else setSyncStatus('');
+
+  $i('btnSyncSave').onclick=function(){
+    syncCfg.token=$i('inGt').value.trim();
+    syncCfg.owner=$i('inGu').value.trim()||'394954147-oss';
+    syncCfg.repo=$i('inGr').value.trim()||'work-platform';
+    saveSync();
+    if(syncCfg.token){
+      ghPush().then(()=>setSyncStatus('☁️ 设置已保存'));
+    }else{
+      setSyncStatus('⛔ 自动同步已关闭');
+    }
+    toast('同步设置已保存 ✅');
+  };
+  $i('btnSyncNow').onclick=function(){
+    if(!syncCfg.token){toast('请先保存 Token');return;}
+    ghPull().then(()=>{if(syncCfg.token)ghPush();});
+  };
+  // auto-pull on init if enabled
+  if(syncCfg.enabled) ghPull();
+}
+
 /* ======================== RENDER ALL ======================== */
 function renderAll(){
   renderStats();
@@ -694,7 +812,7 @@ function renderAll(){
 
 /* ======================== INIT ======================== */
 function init(){
-  load();
+  load();initSync();
   // setStatFilter 'all' on module filter chips
   const today=new Date().toISOString().slice(0,10);
   const now=$i=>{const e=document.getElementById($i);if(e){e.value=today;}};
