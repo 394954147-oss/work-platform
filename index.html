@@ -251,6 +251,22 @@
       <div class="fc" id="fc"></div>
       <div class="tl" id="todolist"></div>
     </div>
+
+    <!-- ====== Data backup ====== -->
+    <div class="crd">
+      <h2><span class="ic">💾</span> 数据备份与同步</h2>
+      <div class="rw" style="align-items:flex-end;">
+        <div class="fl" style="flex:1;">
+          <label class="lb">将当前设备数据导出为文件</label>
+          <button class="btn btn-g btn-sm" id="btnExport" style="margin-top:6px;">⬇ 导出数据</button>
+        </div>
+        <div class="fl" style="flex:1;">
+          <label class="lb">从文件恢复数据（会覆盖当前全部数据）</label>
+          <input type="file" id="inImport" accept=".json" style="display:none;" />
+          <button class="btn btn-sm btn-d" id="btnImport" style="margin-top:6px;">📥 导入数据</button>
+        </div>
+      </div>
+    </div>
   </section>
 
   <!-- ========== SUMMARY VIEW ========== -->
@@ -703,6 +719,29 @@ function init(){
   $i('btnAdd').onclick=addTodo;
   $i('btnAddMod').onclick=addMod;
   $i('btnGen').onclick=genSum;
+  // data export/import
+  $i('btnExport').onclick=function(){
+    const blob = new Blob(['\ufeff'+JSON.stringify(S,null,2)], {type:'application/json;charset=utf-8'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = 'work-platform-backup-'+new Date().toISOString().slice(0,10)+'.json';
+    a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000); toast('已导出 ✅');
+  };
+  $i('btnImport').onclick=function(){ $i('inImport').click(); };
+  $i('inImport').onchange=function(e){
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = function(ev){
+      try {
+        const d = JSON.parse(ev.target.result);
+        if(!d.mods || !d.todos) { toast('文件格式错误，未找到数据'); return; }
+        if(!confirm('导入将覆盖当前全部数据，确定继续？')) return;
+        S.mods = d.mods; S.todos = d.todos; save(); clrCache(); renderAll();
+        toast('✅ 已恢复 '+S.todos.length+' 条待办');
+      } catch(e){ toast('❌ 文件解析失败'); }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // reset so same file can be re-imported
+  };
   document.querySelectorAll('[data-exp]').forEach(b=>{
     b.onclick=()=>expSum(b.dataset.exp);
   });
