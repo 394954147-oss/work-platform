@@ -265,6 +265,10 @@
           <input type="file" id="inImport" accept=".json" style="display:none;" />
           <button class="btn btn-sm btn-d" id="btnImport" style="margin-top:6px;">📥 导入数据</button>
         </div>
+        <div class="fl" style="flex:1;">
+          <label class="lb">⚠️ 全部清空（恢复默认）</label>
+          <button class="btn btn-sm btn-d" id="btnReset" style="margin-top:6px;">🗑 重置数据</button>
+        </div>
       </div>
     </div>
 
@@ -728,6 +732,19 @@ function setSyncStatus(msg,ok){
 function ghHeaders(){return {'Authorization':'Bearer '+syncCfg.token,'Accept':'application/vnd.github.v3+json'};}
 function ghUrl(path){return 'https://api.github.com/repos/'+syncCfg.owner+'/'+syncCfg.repo+path;}
 
+// --- proper UTF-8 ↔ base64 (handles Chinese etc.) ---
+function strToB64(s){
+  const bytes=new TextEncoder().encode(s);
+  let bin='';for(let i=0;i<bytes.length;i++)bin+=String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+function b64ToStr(b64){
+  const bin=atob(b64);
+  const bytes=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
 function ghPull(){
   if(!syncCfg.enabled||!syncCfg.token)return Promise.resolve();
   setSyncStatus('⏳ 正在同步…');
@@ -738,9 +755,11 @@ function ghPull(){
     })
     .then(d=>{
       if(!d)return;
-      const raw=atob(d.content);
-      const remote=JSON.parse(raw);
-      if(!remote.mods||!remote.todos){setSyncStatus('⚠️ 云端数据格式异常');return;}
+      let body;
+      try { body=b64ToStr(d.content); }catch(e){setSyncStatus('⚠️ 解码失败');return;}
+      let remote;
+      try{remote=JSON.parse(body);}catch(e){setSyncStatus('⚠️ 云端数据格式异常');return;}
+      if(!remote.mods||!remote.todos){setSyncStatus('⚠️ 云端数据字段缺失');return;}
       // compare: if local is empty or remote is newer, adopt remote
       if(S.todos.length===0||(remote._ts||0)>(S._ts||0)){
         S.mods=remote.mods;S.todos=remote.todos;S._ts=remote._ts||0;
@@ -757,7 +776,7 @@ function ghPush(){
   if(!syncCfg.enabled||!syncCfg.token)return;
   S._ts=Date.now();
   const body=JSON.stringify({mods:S.mods,todos:S.todos,_ts:S._ts});
-  const b64=btoa(unescape(encodeURIComponent(body)));
+  const b64=strToB64(body);
   // get current sha (if exists)
   fetch(ghUrl('/contents/data.json'),{headers:ghHeaders()})
     .then(r=>r.ok?r.json():{sha:null})
@@ -853,12 +872,19 @@ function init(){
         const d = JSON.parse(ev.target.result);
         if(!d.mods || !d.todos) { toast('文件格式错误，未找到数据'); return; }
         if(!confirm('导入将覆盖当前全部数据，确定继续？')) return;
-        S.mods = d.mods; S.todos = d.todos; save(); clrCache(); renderAll();
+        S.mods = d.mods; S.todos = d.todos; save(); ghPush(); clrCache(); renderAll();
         toast('✅ 已恢复 '+S.todos.length+' 条待办');
       } catch(e){ toast('❌ 文件解析失败'); }
     };
     reader.readAsText(file);
     e.target.value = ''; // reset so same file can be re-imported
+  };
+  $i('btnReset').onclick=function(){
+    if(!confirm('确定要清空所有数据并恢复默认吗？此操作不可撤销。'))return;
+    localStorage.removeItem(KEY);
+    S={mods:DEF_MODS.map(m=>({...m})),todos:[]};
+    save();clrCache();renderAll();
+    toast('已重置为默认模块');
   };
   document.querySelectorAll('[data-exp]').forEach(b=>{
     b.onclick=()=>expSum(b.dataset.exp);
